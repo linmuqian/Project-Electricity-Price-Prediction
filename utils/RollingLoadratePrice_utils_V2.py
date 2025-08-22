@@ -161,7 +161,10 @@ def eval_curve_on_x(
         x_mid = np.array([_midpoint(iv) for iv in idx], dtype=float)
         y_val = curve_interp.values.astype(float)
         kind = "quadratic" if len(x_mid) >= 3 else "linear"
-        f = interp1d(x_mid, y_val, kind=kind, fill_value="extrapolate")
+        # 如果越界，则对最外侧做线性/二次外推，再截取到(0,1500)
+        # f = interp1d(x_mid, y_val, kind=kind, fill_value="extrapolate")
+        # 如果越界，则贴左右端点，这样更加可控
+        f = interp1d(x_mid, y_val, kind=kind, bounds_error=False, fill_value=(y_val[0], y_val[-1]))
         y = f(np.array(x_list, dtype=float))
         y = np.clip(y, 0.0, 1500.0)
         return pd.Series(y, index=pd.Index(x_list))
