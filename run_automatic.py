@@ -49,6 +49,8 @@ def main():
         (dir / "step2_dataset_generate.py", []),
         (dir / "step3_train_GRU.py", []),
         (dir / "step4_price_prediction.py", []),  
+        (dir / "step5_update_dplus.py", []),
+        (dir / "step6_predict_dplus.py", []),
     ]
 
     # 如果三个脚本需要同一个参数（例如 --date），可在这里统一加到 args

@@ -24,9 +24,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from matplotlib import font_manager as fm
-myfont = fm.FontProperties(fname="/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
-rcParams['font.sans-serif'] = [myfont.get_name()]
-rcParams['axes.unicode_minus'] = False
+# myfont = fm.FontProperties(fname="/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
+# rcParams['font.sans-serif'] = [myfont.get_name()]
+# rcParams['axes.unicode_minus'] = False
+from matplotlib import rcParams, font_manager as fm
+
+try:
+    fams = {f.name for f in fm.fontManager.ttflist}
+    # 把 DejaVu 放到 Droid 之前
+    order = ["Noto Sans CJK SC", "DejaVu Sans", "Droid Sans Fallback"]  # ← 这里调换顺序
+    chosen = [f for f in order if f in fams] or ["DejaVu Sans"]
+    rcParams["font.family"] = "sans-serif"
+    rcParams["font.sans-serif"] = chosen
+except Exception:
+    pass
+
+rcParams["axes.unicode_minus"] = False
+
+
 
 import warnings
 from pandas.errors import SettingWithCopyWarning
@@ -249,6 +264,7 @@ class RollingLoadratePriceForecaster_classify:
         hiking_truth_da_by_day: Optional[pd.Series] = None,
         hiking_truth_rt_by_day: Optional[pd.Series] = None,
         selection: str = "match",
+        horizon: int = 1
     ) -> Dict[str, Dict[str, Any]]:
         """
         返回与原来相同结构的 curves_record（key 为 'YYYY-MM-DD'）。
@@ -261,7 +277,12 @@ class RollingLoadratePriceForecaster_classify:
           - hiking_truth_da_by_day/hiking_truth_rt_by_day: 每日“真实标签”（index=日期）
             * 用于历史日筛选（因为真实CSV覆盖更长时间）
           - selection: 'baseline' | 'match' | 'pos_only' | 'neg_only'
+          - horizon: 预测D+horizon天的价格，如horizon=2，则预测D+2天的价格
         """
+        
+        if horizon < 1:
+            raise ValueError("horizon 必须 >= 1")
+        
         # 规范索引
         if hiking_pred_by_day is not None:
             hiking_pred_by_day = hiking_pred_by_day.copy()
@@ -280,56 +301,70 @@ class RollingLoadratePriceForecaster_classify:
 
         # 所有有数据的日期（日级）
         all_dates = pd.to_datetime(self.market_data.index.normalize().unique())
+        
+        # >>> 新增(Dn)：将预测标签“对齐到基准日”（base_day拿到 target_day 的标签）
+        # 如horizon=2时，在base_day=8/25取到的是target_day=8/27的标签
+        # 这样还能继续复用你已有的 _select_history_dates，不用改它的注释和实现
+        pred_shifted = None
+        if hiking_pred_by_day is not None:
+            pred_shifted = hiking_pred_by_day.shift(-horizon, freq="D")
+
+        # 循环的“基准日”范围需要预留 horizon 天，避免 target_day 越界
+        start = pd.to_datetime(start_date)
+        end   = pd.to_datetime(end_date)
+        base_days = pd.date_range(start=start, end=end - pd.Timedelta(days=horizon), freq="D")  # >>> 新增(Dn)
 
         curves_record: Dict[str, Dict[str, Any]] = {}
 
-        for date in pd.date_range(start=start_date, end=end_date, freq="D"):
-            date_str = date.strftime("%Y-%m-%d")
+        # 将原本按“date”循环，改为按“base_day”循环；其它尽量不动
+        for base_day in base_days:
+            base_day = base_day.normalize()
+            target_day = (base_day + pd.Timedelta(days=horizon)).normalize()  # >>> 新增(Dn)
+            date_str = target_day.strftime("%Y-%m-%d")                        # >>> 新增(Dn)：curves_record 的 key=目标日
 
-            # 当天数据（用于回代预测 & 画对比）
+            # 当天数据（此处的“当天”= 目标日；原注释保持）
             try:
                 lr_da_today = self.market_data.loc[date_str, self.col["loadrate_da"]].values
                 lr_rt_today = self.market_data.loc[date_str, self.col["loadrate_rt"]].values
                 price_da_today = self.market_data.loc[date_str, self.col["price_da"]].values
                 price_rt_today = self.market_data.loc[date_str, self.col["price_rt"]].values
             except KeyError:
-                # 当天没数据就跳过
                 continue
 
-            # baseline 之外的模式，需要当天有预测标签；否则跳过
+            # baseline 之外的模式，需要“目标日”的预测标签（用 pred_shifted 在 base_day 取）
             if selection != "baseline":
-                if hiking_pred_by_day is None or date.normalize() not in hiking_pred_by_day.index:
+                if pred_shifted is None or base_day not in pred_shifted.index:
                     continue
 
             # ——选择历史日（DA 与 RT 分别按各自真实标签筛选）
+            # 复用你原来的工具：anchor_date=base_day，pred_label_by_day=pred_shifted（其在 base_day 上就是 target_day 的标签）
             hist_dates_da = self._select_history_dates(
                 all_dates=all_dates,
-                anchor_date=date,
+                anchor_date=base_day,            # >>> 新增(Dn)：锚定为“基准日”
                 d=d,
                 selection=selection,
-                pred_label_by_day=hiking_pred_by_day,
+                pred_label_by_day=pred_shifted,  # 在 base_day 读到的是 target_day 的 Pred_Label
                 true_label_by_day=hiking_truth_da_by_day,
             )
             hist_dates_rt = self._select_history_dates(
                 all_dates=all_dates,
-                anchor_date=date,
+                anchor_date=base_day,
                 d=d,
                 selection=selection,
-                pred_label_by_day=hiking_pred_by_day,
+                pred_label_by_day=pred_shifted,
                 true_label_by_day=hiking_truth_rt_by_day if hiking_truth_rt_by_day is not None else hiking_truth_da_by_day,
             )
 
-            # ——拼历史窗口并拟合（DA）
+            # ——拼历史窗口并拟合（与原逻辑一致）
             lr_da_hist = self._concat_days_list(hist_dates_da, self.col["loadrate_da"])
             pr_da_hist = self._concat_days_list(hist_dates_da, self.col["price_da"])
             curve_da_bin, curve_da_interp = self._fit_curve_from_history(lr_da_hist, pr_da_hist)
 
-            # ——拼历史窗口并拟合（RT）
             lr_rt_hist = self._concat_days_list(hist_dates_rt, self.col["loadrate_rt"])
             pr_rt_hist = self._concat_days_list(hist_dates_rt, self.col["price_rt"])
             curve_rt_bin, curve_rt_interp = self._fit_curve_from_history(lr_rt_hist, pr_rt_hist)
 
-            # ——回代当天负荷率得到价格预测（插值可用则优先，否则退回分箱曲线）
+            # ——回代目标日负荷率得到价格预测（保持原注释与分支）
             if curve_da_interp is not None:
                 price_pred_da = find_y_vectorized(lr_da_today, curve_da_interp)
             elif curve_da_bin is not None:
@@ -344,7 +379,7 @@ class RollingLoadratePriceForecaster_classify:
             else:
                 price_pred_rt = pd.Series([np.nan] * len(lr_rt_today))
 
-            # ——组织与原代码一致的字典（画图只用 price_pred_* / price_* 即可）
+            # ——组织与原代码一致的字典（保留原注释）；仅补充 3 个诊断字段
             curves = {
                 "bidspace_da": self.market_data.loc[date_str, self.col["bidspace_da"]].values
                     if self.col["bidspace_da"] in self.market_data.columns else None,
@@ -362,17 +397,21 @@ class RollingLoadratePriceForecaster_classify:
                 "loadrate_price_bin_curve_interpolate_da": curve_da_interp,
                 "loadrate_price_bin_curve_interpolate_rt": curve_rt_interp,
 
-                # ——最重要：用“历史曲线”对“今天”负荷率的预测——
+                # ——最重要：用“历史曲线”对“今天”负荷率的预测——（此处“今天”=目标日）
                 "price_pred_da": price_pred_da,
                 "price_pred_rt": price_pred_rt,
 
                 # 诊断信息（便于复现/查错）
-                "hiking_pred": (int(hiking_pred_by_day.loc[date.normalize()]) if
-                                (selection != "baseline" and hiking_pred_by_day is not None and date.normalize() in hiking_pred_by_day.index)
+                "hiking_pred": (int(hiking_pred_by_day.loc[target_day])  # >>> 新增(Dn)：记录目标日的预测标签
+                                if (selection != "baseline" and hiking_pred_by_day is not None and target_day in hiking_pred_by_day.index)
                                 else None),
                 "history_dates_used_da": list(hist_dates_da),
                 "history_dates_used_rt": list(hist_dates_rt),
                 "selection": selection,
+
+                "horizon": int(horizon),                            # >>> 新增(Dn)
+                "base_day": base_day.strftime("%Y-%m-%d"),          # >>> 新增(Dn)
+                "target_day": date_str,                             # >>> 新增(Dn)
             }
             curves_record[date_str] = curves
 
@@ -400,6 +439,7 @@ def build_curves_record_with_history_classify_from_csv(
     max_load_rate: int = 100,
     new_interval: int = 1,
     selection: str = "match",
+    horizon: int = 1,
 ) -> Dict[str, Dict[str, Any]]:
     """
     一行生成 curves_record（可直接接你的两个画图函数）：
@@ -435,6 +475,7 @@ def build_curves_record_with_history_classify_from_csv(
         hiking_truth_da_by_day=truth_da_s,
         hiking_truth_rt_by_day=truth_rt_s,
         selection=selection,
+        horizon=horizon,
     )
 
 
@@ -452,6 +493,7 @@ def build_curves_record_with_history_classify(
     max_load_rate: int = 100,
     new_interval: int = 1,
     selection: str = "match",
+    horizon: int = 1,
 ) -> Dict[str, Dict[str, Any]]:
     """
     若你已在外部把 CSV 读成 Series，可用这个封装。
@@ -483,6 +525,7 @@ def build_curves_record_with_history_classify(
         hiking_truth_da_by_day=truth_da_s,
         hiking_truth_rt_by_day=truth_rt_s,
         selection=selection,
+        horizon=horizon,
     )
 
 

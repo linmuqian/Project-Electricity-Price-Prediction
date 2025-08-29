@@ -1,4 +1,4 @@
-# train_GRU.py
+# scripts/train_GRU_today.py
 # ------------------------------------------------------------
 # 功能：基于“今天”的数据训练/验证，并对“明天”做单日预测（不滚动）
 # 特点：
@@ -121,7 +121,7 @@ def main():
     # 10) 可选：保存结果为 CSV（文件名包含数据集版本与日期）
     if args.save_csv:
         os.makedirs(args.out_dir, exist_ok=True)
-        out_path = os.path.join(args.out_dir, f"today_pred_hiking_{args.dataset_ver}_{test_begin_s}.csv")
+        out_path = os.path.join(args.out_dir, f"today_pred_{args.dataset_ver}_{test_begin_s}.csv")
         predict_df.to_csv(out_path, index=False)
         print(f"\n已保存到: {out_path}")
 

@@ -43,10 +43,20 @@ from .RollingLoadratePrice_utils_V1 import (
 import matplotlib.font_manager as fm
 from matplotlib import rcParams
 
-myfont = fm.FontProperties(fname="/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
-rcParams['font.sans-serif'] = [myfont.get_name()]
-rcParams['axes.unicode_minus'] = False
+# myfont = fm.FontProperties(fname="/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
+# rcParams['font.sans-serif'] = [myfont.get_name()]
+# rcParams['axes.unicode_minus'] = False
 
+from matplotlib import rcParams, font_manager as fm
+
+try:
+    fams = {f.name for f in fm.fontManager.ttflist}
+    order = ["Noto Sans CJK SC", "Droid Sans Fallback", "DejaVu Sans"]
+    rcParams["font.sans-serif"] = [f for f in order if f in fams] or ["DejaVu Sans"]
+except Exception:
+    pass
+
+rcParams["axes.unicode_minus"] = False
 
 
 # ======================================================================
