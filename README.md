@@ -22,23 +22,10 @@
 pip install requirements.txt
 ```
 
-包括以下依赖库:
+需要
 
 ```
-python==3.7
-colorlog==6.7.0
-matplotlib==3.5.3
-numpy==1.21.6
-pandas==1.3.5
-pywavelets==1.3.0
-pyyaml==6.0
-scikit-learn==1.0.2
-seaborn==0.12.2
-skforecast==0.6.0
-statsmodels==0.13.5
-tqdm==4.64.1
-xlrd==2.0.1
-tslearn==0.5.3.2
+python==3.10
 ```
 
 ## 用法
@@ -74,6 +61,21 @@ python step3_train_GRU.py
 ```
 python step4_price_prediction.py
 ```
+步骤5:从清鹏网站上下载QP数据或者省调数据
+```
+python step5_update_dplus.py
+```
+  或者分别运行
+  ```
+  python update_Dn_market_data.py
+  QP_pred.ipynb
+  ```
+步骤6:使用前d日量价关系，预测D+2至D+5价格走势
+```
+python step6_predict_dplus.py
+```
+
+
 ### 回测模式
 对step1和step2生成的数据集初步了解
 ```
@@ -85,7 +87,9 @@ notebook/step2_dataset_generate.ipynb
 python scripts/train_multi_GRU.py
 notebook/step3_polot_backtest_result.ipynb
 ```
-对step4的量价关系和价格走势做回测分析，对比baseline和match模式
+对step4的量价关系和价格走势做回测分析\
+分别使用baseline/match/diffusion的方法对D+1至D+5回测分析\
+并对比其预测的月均准确率
 ```
 notebook/step4_price_backtest.ipynb
 ```
